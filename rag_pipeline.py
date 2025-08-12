@@ -117,6 +117,27 @@ class RAGPipeline:
         """
         return self.retrieval.get_document_by_id(doc_id)
     
+    def list_all_documents(self) -> List[Dict[str, Any]]:
+        """
+        List all documents in the index.
+        
+        Returns:
+            List[Dict[str, Any]]: List of all documents with their IDs
+        """
+        return self.retrieval.list_all_documents()
+    
+    def get_document_by_node_id(self, node_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve a specific document by node ID from the vector store.
+        
+        Args:
+            node_id: The node ID from search results
+            
+        Returns:
+            Optional[Dict[str, Any]]: The document if found, None otherwise
+        """
+        return self.retrieval.get_document_by_node_id(node_id)
+    
     def get_document_count(self) -> int:
         """
         Get the total number of documents in the index.

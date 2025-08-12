@@ -28,10 +28,11 @@ class DocumentIngestion:
             model_name=Config.EMBEDDING_MODEL
         )
         
-        # Initialize node parser
+        # Initialize node parser with improved chunking to reduce duplicates
         self.node_parser = SentenceSplitter(
-            chunk_size=Config.CHUNK_SIZE,
-            chunk_overlap=Config.CHUNK_OVERLAP
+            chunk_size=512,  # Larger chunks to reduce fragmentation
+            chunk_overlap=50,  # Minimal overlap to avoid duplicates
+            separator="\n\n"  # Use paragraph breaks for better chunking
         )
         
         # Initialize service context
@@ -72,14 +73,20 @@ class DocumentIngestion:
             str: The document ID
         """
         try:
-            # Create LlamaIndex Document
+            import uuid
+            
+            # Generate a unique document ID
+            doc_id = str(uuid.uuid4())
+            
+            # Create LlamaIndex Document with the generated ID
             document = Document(
                 text=text,
-                metadata=metadata or {}
+                metadata=metadata or {},
+                id_=doc_id
             )
             
             # Insert document into index
-            doc_id = self.index.insert(document)
+            self.index.insert(document)
             
             logger.info(f"Ingested text document with ID: {doc_id}")
             return doc_id
