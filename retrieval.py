@@ -12,6 +12,7 @@ from llama_index.legacy.query_engine import RetrieverQueryEngine
 from llama_index.legacy.postprocessor import SimilarityPostprocessor
 from llama_index.core.vector_stores.types import VectorStoreQuery, VectorStoreQueryMode
 from config import Config
+from custom_node_parser import MarkdownTokenTextSplitter, UnicodeSafeTokenTextSplitter
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,7 @@ class Retrieval:
     
     This class implements retrieval using LlamaIndex's query engine and retriever
     components, providing both vector similarity search and hybrid search options.
+    Uses custom splitters for consistency with the ingestion pipeline.
     """
     
     def __init__(self):
@@ -30,16 +32,27 @@ class Retrieval:
             model_name=Config.EMBEDDING_MODEL
         )
         
-        # Initialize node parser
-        self.node_parser = SentenceSplitter(
+        # Initialize custom splitters for consistency with ingestion
+        self.markdown_splitter = MarkdownTokenTextSplitter(
             chunk_size=Config.CHUNK_SIZE,
             chunk_overlap=Config.CHUNK_OVERLAP
         )
         
-        # Initialize service context
+        self.unicode_splitter = UnicodeSafeTokenTextSplitter(
+            chunk_size=Config.CHUNK_SIZE,
+            chunk_overlap=Config.CHUNK_OVERLAP
+        )
+        
+        # Initialize default node parser for general text
+        self.default_node_parser = SentenceSplitter(
+            chunk_size=Config.CHUNK_SIZE,
+            chunk_overlap=Config.CHUNK_OVERLAP
+        )
+        
+        # Initialize service context with MarkdownTokenTextSplitter as default
         self.service_context = ServiceContext.from_defaults(
             embed_model=self.embedding_model,
-            node_parser=self.node_parser,
+            node_parser=self.markdown_splitter,  # Use MarkdownTokenTextSplitter as default
             llm=None  # We don't need an LLM for embeddings
         )
         
@@ -71,7 +84,7 @@ class Retrieval:
             retriever=self.retriever
         )
         
-        logger.info(f"Initialized Retrieval with LlamaIndex and model: {Config.EMBEDDING_MODEL}")
+        logger.info(f"Initialized Retrieval with custom splitters and model: {Config.EMBEDDING_MODEL}")
     
     def search(self, query: str, k: int = 5, hybrid_weight: float = 0.5) -> List[Dict[str, Any]]:
         """
@@ -367,6 +380,8 @@ class Retrieval:
             
             # 2. Full-text Search using PostgreSQL - get more candidates
             text_results = self._postgres_full_text_search(query, k * 3)
+            print(f"text_results: {text_results}")
+            print(f"text_results length: {len(text_results)}")
             
             # 3. Combine and re-rank results with improved algorithm
             combined_results = self._combine_search_results(

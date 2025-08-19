@@ -34,3 +34,7 @@ class Config:
     def get_database_url(cls) -> str:
         """Get the PostgreSQL connection URL."""
         return f"postgresql://{cls.DB_USER}:{cls.DB_PASSWORD}@{cls.DB_HOST}:{cls.DB_PORT}/{cls.DB_NAME}"
+
+
+
+config = Config()
