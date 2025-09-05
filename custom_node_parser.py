@@ -11,8 +11,7 @@ class UnicodeSafeTokenTextSplitter(TokenTextSplitter):
             return [text]
 
         # This regex pattern matches Unicode characters, including surrogate pairs
-        # Using a simpler approach that works with standard re library
-        pattern = re.compile(r".")
+        pattern = re.compile(r"\X", re.UNICODE)
 
         splits = []
         current_split = ""
