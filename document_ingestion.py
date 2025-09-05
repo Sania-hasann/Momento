@@ -171,6 +171,57 @@ class DocumentIngestion:
         logger.info(f"Successfully ingested {len(doc_ids)} documents")
         return doc_ids
     
+    def ingest_markdown_directory(self, directory_path: str, recursive: bool = True) -> List[str]:
+        """
+        Ingest all markdown files from a directory.
+        
+        Args:
+            directory_path: Path to the directory containing markdown files
+            recursive: Whether to search subdirectories recursively
+            
+        Returns:
+            List[str]: List of document IDs that were inserted
+        """
+        import glob
+        
+        doc_ids = []
+        
+        # Find all markdown files
+        if recursive:
+            pattern = os.path.join(directory_path, "**", "*.md")
+        else:
+            pattern = os.path.join(directory_path, "*.md")
+        
+        markdown_files = glob.glob(pattern, recursive=recursive)
+        
+        if not markdown_files:
+            logger.warning(f"No markdown files found in {directory_path}")
+            return doc_ids
+        
+        logger.info(f"Found {len(markdown_files)} markdown files to ingest")
+        
+        for file_path in markdown_files:
+            try:
+                # Add directory metadata
+                relative_path = os.path.relpath(file_path, directory_path)
+                directory = os.path.dirname(relative_path)
+                
+                metadata = {
+                    'file_name': os.path.basename(file_path),
+                    'directory': directory,
+                    'file_type': 'markdown'
+                }
+                
+                doc_id = self.ingest_file(file_path, metadata)
+                doc_ids.append(doc_id)
+                
+            except Exception as e:
+                logger.error(f"Error ingesting file {file_path}: {e}")
+                continue
+        
+        logger.info(f"Successfully ingested {len(doc_ids)} markdown files")
+        return doc_ids
+    
     def get_document_count(self) -> int:
         """
         Get the total number of documents in the index.

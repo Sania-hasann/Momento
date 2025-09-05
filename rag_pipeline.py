@@ -70,22 +70,68 @@ class RAGPipeline:
         return self.ingestion.ingest_file(file_path, metadata)
 
     def search(
-        self, query: str, k: int = 5, hybrid_weight: float = 0.5
+        self, query: str, k: int = None, hybrid_weight: float = None
     ) -> List[Dict[str, Any]]:
         """
-        Perform search using LlamaIndex's query engine.
+        Perform enhanced hybrid search combining BM25 + pgvector (default behavior).
 
         Args:
             query: The search query
             k: Number of top results to return
-            hybrid_weight: Weight for vector similarity (not used in LlamaIndex, kept for compatibility)
+            hybrid_weight: Weight for vector search (0.0-1.0), None for auto
 
         Returns:
-            List[Dict[str, Any]]: List of documents with scores and metadata
+            List[Dict[str, Any]]: List of documents with combined scores and metadata
         """
-        return self.retrieval.search(query, k, hybrid_weight)
+        # Use enhanced hybrid search as the default search method
+        k = k if k is not None else Config.DEFAULT_K
+        hybrid_weight = hybrid_weight if hybrid_weight is not None else Config.DEFAULT_HYBRID_WEIGHT
+        return self.retrieval.enhanced_hybrid_search(
+            query, k, vector_weight=hybrid_weight, fusion_method=Config.DEFAULT_FUSION_METHOD, query_aware=True
+        )
+    
+    def enhanced_hybrid_search(
+        self, 
+        query: str, 
+        k: int = None, 
+        vector_weight: float = None,
+        fusion_method: str = None,
+        query_aware: bool = True
+    ) -> List[Dict[str, Any]]:
+        """
+        Perform enhanced hybrid search combining BM25 + pgvector with advanced fusion.
 
-    def vector_search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+        Args:
+            query: The search query
+            k: Number of top results to return
+            vector_weight: Weight for vector search (0.0-1.0), None for auto
+            fusion_method: Fusion method ("wlc", "rrf", "adaptive")
+            query_aware: Whether to use query-aware weighting
+
+        Returns:
+            List[Dict[str, Any]]: List of documents with combined scores and metadata
+        """
+        k = k if k is not None else Config.DEFAULT_K
+        fusion_method = fusion_method if fusion_method is not None else Config.DEFAULT_FUSION_METHOD
+        return self.retrieval.enhanced_hybrid_search(
+            query, k, vector_weight, fusion_method, query_aware
+        )
+    
+    def bm25_search(self, query: str, k: int = None) -> List[Dict[str, Any]]:
+        """
+        Perform BM25 keyword-based search.
+
+        Args:
+            query: The search query
+            k: Number of top results to return
+
+        Returns:
+            List[Dict[str, Any]]: List of documents with BM25 scores
+        """
+        k = k if k is not None else Config.DEFAULT_K
+        return self.retrieval.bm25_search(query, k)
+
+    def vector_search(self, query: str, k: int = None) -> List[Dict[str, Any]]:
         """
         Perform vector similarity search using LlamaIndex's retriever.
 
@@ -96,9 +142,10 @@ class RAGPipeline:
         Returns:
             List[Dict[str, Any]]: List of documents with similarity scores
         """
+        k = k if k is not None else Config.DEFAULT_K
         return self.retrieval.vector_search(query, k)
 
-    def full_text_search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+    def full_text_search(self, query: str, k: int = None) -> List[Dict[str, Any]]:
         """
         Perform full-text search (falls back to vector search in LlamaIndex).
 
@@ -109,6 +156,7 @@ class RAGPipeline:
         Returns:
             List[Dict[str, Any]]: List of documents with relevance scores
         """
+        k = k if k is not None else Config.DEFAULT_K
         return self.retrieval.full_text_search(query, k)
 
     def get_document_by_id(self, doc_id: str) -> Optional[Dict[str, Any]]:
