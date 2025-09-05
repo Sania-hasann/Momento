@@ -1,6 +1,7 @@
 """
 Document retrieval module for the RAG pipeline using LlamaIndex.
 Enhanced with BM25 keyword search for maximum hybrid search effectiveness.
+Uses custom splitters for consistency with the ingestion pipeline.
 """
 import logging
 import math
@@ -15,6 +16,7 @@ from llama_index.legacy.retrievers import VectorIndexRetriever
 from llama_index.legacy.query_engine import RetrieverQueryEngine
 from llama_index.legacy.postprocessor import SimilarityPostprocessor
 from llama_index.core.vector_stores.types import VectorStoreQuery, VectorStoreQueryMode
+from custom_node_parser import MarkdownTokenTextSplitter, UnicodeSafeTokenTextSplitter
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ class Retrieval:
     
     This class implements retrieval using LlamaIndex's query engine and retriever
     components, providing both vector similarity search and hybrid search options.
+    Uses custom splitters for consistency with the ingestion pipeline.
     """
     
     def __init__(self, bm25_k1: float = None, bm25_b: float = None):
@@ -34,17 +37,25 @@ class Retrieval:
             model_name=Config.EMBEDDING_MODEL
         )
         
-        # Initialize node parser
-        self.node_parser = SentenceSplitter(
+        # Initialize custom splitters for consistency with ingestion
+        self.markdown_splitter = MarkdownTokenTextSplitter(
+            chunk_size=Config.CHUNK_SIZE,
+            chunk_overlap=Config.CHUNK_OVERLAP
+        )
+        self.unicode_splitter = UnicodeSafeTokenTextSplitter(
+            chunk_size=Config.CHUNK_SIZE,
+            chunk_overlap=Config.CHUNK_OVERLAP
+        )
+        self.default_node_parser = SentenceSplitter(
             chunk_size=Config.CHUNK_SIZE,
             chunk_overlap=Config.CHUNK_OVERLAP,
             separator=Config.CHUNK_SEPARATOR
         )
         
-        # Initialize service context
+        # Initialize service context with MarkdownTokenTextSplitter as default
         self.service_context = ServiceContext.from_defaults(
             embed_model=self.embedding_model,
-            node_parser=self.node_parser,
+            node_parser=self.markdown_splitter,  # Use MarkdownTokenTextSplitter as default
             llm=None  # We don't need an LLM for embeddings
         )
         
@@ -87,7 +98,7 @@ class Retrieval:
         self.bm25_total_docs = 0
         self._build_bm25_index()
         
-        logger.info(f"Initialized Retrieval with LlamaIndex, BM25, and model: {Config.EMBEDDING_MODEL}")
+        logger.info(f"Initialized Retrieval with custom splitters and model: {Config.EMBEDDING_MODEL}")
     
     def search(self, query: str, k: int = None, hybrid_weight: float = None) -> List[Dict[str, Any]]:
         """

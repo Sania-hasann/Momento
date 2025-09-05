@@ -1,5 +1,6 @@
 """
 Document ingestion module for the RAG pipeline using LlamaIndex.
+Uses custom splitters for better handling of markdown and Unicode content.
 """
 import os
 import logging
@@ -8,6 +9,7 @@ from llama_index.legacy import VectorStoreIndex, Document, ServiceContext
 from llama_index.vector_stores.postgres import PGVectorStore
 from llama_index.legacy.embeddings import HuggingFaceEmbedding
 from llama_index.legacy.node_parser import SentenceSplitter
+from custom_node_parser import MarkdownTokenTextSplitter, UnicodeSafeTokenTextSplitter
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -19,6 +21,7 @@ class DocumentIngestion:
     This class processes raw text documents or file paths, generates embeddings
     using the all-MiniLM-L6-v2 model, and stores them in PostgreSQL using
     LlamaIndex's PGVectorStore for efficient similarity search.
+    Uses custom splitters for better handling of markdown and Unicode content.
     """
     
     def __init__(self):
@@ -28,17 +31,25 @@ class DocumentIngestion:
             model_name=Config.EMBEDDING_MODEL
         )
         
-        # Initialize node parser with improved chunking to reduce duplicates
-        self.node_parser = SentenceSplitter(
+        # Initialize custom splitters
+        self.markdown_splitter = MarkdownTokenTextSplitter(
+            chunk_size=Config.CHUNK_SIZE,
+            chunk_overlap=Config.CHUNK_OVERLAP
+        )
+        self.unicode_splitter = UnicodeSafeTokenTextSplitter(
+            chunk_size=Config.CHUNK_SIZE,
+            chunk_overlap=Config.CHUNK_OVERLAP
+        )
+        self.default_node_parser = SentenceSplitter(
             chunk_size=Config.CHUNK_SIZE,
             chunk_overlap=Config.CHUNK_OVERLAP,
             separator=Config.CHUNK_SEPARATOR
         )
         
-        # Initialize service context
+        # Initialize service context with MarkdownTokenTextSplitter as default
         self.service_context = ServiceContext.from_defaults(
             embed_model=self.embedding_model,
-            node_parser=self.node_parser,
+            node_parser=self.markdown_splitter,  # Use MarkdownTokenTextSplitter as default
             llm=None  # We don't need an LLM for embeddings
         )
         
@@ -59,15 +70,44 @@ class DocumentIngestion:
             service_context=self.service_context
         )
         
-        logger.info(f"Initialized DocumentIngestion with LlamaIndex and model: {Config.EMBEDDING_MODEL}")
+        logger.info(f"Initialized DocumentIngestion with custom splitters and model: {Config.EMBEDDING_MODEL}")
     
-    def ingest_text(self, text: str, metadata: Dict[str, Any] = None) -> str:
+    def _get_appropriate_splitter(self, text: str, file_path: str = None) -> Union[
+        MarkdownTokenTextSplitter, UnicodeSafeTokenTextSplitter, SentenceSplitter
+    ]:
         """
-        Ingest a single text document using LlamaIndex.
+        Select the appropriate splitter based on content type.
+        
+        Args:
+            text: The text content to analyze
+            file_path: Optional file path to help determine content type
+            
+        Returns:
+            The appropriate splitter instance
+        """
+        # Check if it's a markdown file
+        if file_path and file_path.endswith('.md'):
+            return self.markdown_splitter
+        
+        # Check if text contains markdown syntax
+        if any(marker in text for marker in ['# ', '## ', '### ', '|', '```', '**', '*']):
+            return self.markdown_splitter
+        
+        # Check for Unicode characters that might need special handling
+        if any(ord(char) > 127 for char in text[:1000]):  # Check first 1000 chars
+            return self.unicode_splitter
+        
+        # Default to markdown splitter for better general handling
+        return self.markdown_splitter
+    
+    def ingest_text(self, text: str, metadata: Dict[str, Any] = None, file_path: str = None) -> str:
+        """
+        Ingest a single text document using LlamaIndex with appropriate custom splitter.
         
         Args:
             text: The text content to ingest
             metadata: Optional metadata dictionary to store with the document
+            file_path: Optional file path to help determine content type
             
         Returns:
             str: The document ID
@@ -75,20 +115,35 @@ class DocumentIngestion:
         try:
             import uuid
             
+            # Select appropriate splitter
+            splitter = self._get_appropriate_splitter(text, file_path)
+            splitter_name = splitter.__class__.__name__
+            
             # Generate a unique document ID
             doc_id = str(uuid.uuid4())
+            
+            # Add splitter information to metadata
+            enhanced_metadata = metadata or {}
+            enhanced_metadata['splitter_used'] = splitter_name
             
             # Create LlamaIndex Document with the generated ID
             document = Document(
                 text=text,
-                metadata=metadata or {},
+                metadata=enhanced_metadata,
                 id_=doc_id
             )
+            
+            # Temporarily update service context with selected splitter
+            original_node_parser = self.service_context.node_parser
+            self.service_context.node_parser = splitter
             
             # Insert document into index
             self.index.insert(document)
             
-            logger.info(f"Ingested text document with ID: {doc_id}")
+            # Restore original node parser
+            self.service_context.node_parser = original_node_parser
+            
+            logger.info(f"Ingested text document with ID: {doc_id} using {splitter_name}")
             return doc_id
             
         except Exception as e:
@@ -97,7 +152,7 @@ class DocumentIngestion:
     
     def ingest_file(self, file_path: str, metadata: Dict[str, Any] = None) -> str:
         """
-        Ingest a document from a file path using LlamaIndex.
+        Ingest a document from a file path using LlamaIndex with appropriate custom splitter.
         
         Args:
             file_path: Path to the file to ingest
@@ -124,7 +179,7 @@ class DocumentIngestion:
             if metadata:
                 file_metadata.update(metadata)
             
-            return self.ingest_text(content, file_metadata)
+            return self.ingest_text(content, file_metadata, file_path)
             
         except Exception as e:
             logger.error(f"Error ingesting file {file_path}: {e}")
@@ -173,7 +228,7 @@ class DocumentIngestion:
     
     def ingest_markdown_directory(self, directory_path: str, recursive: bool = True) -> List[str]:
         """
-        Ingest all markdown files from a directory.
+        Recursively ingest all markdown files from a directory using custom markdown splitter.
         
         Args:
             directory_path: Path to the directory containing markdown files
@@ -198,6 +253,7 @@ class DocumentIngestion:
             logger.warning(f"No markdown files found in {directory_path}")
             return doc_ids
         
+        logger.info(f"Starting markdown ingestion from directory: {directory_path} using custom markdown splitter")
         logger.info(f"Found {len(markdown_files)} markdown files to ingest")
         
         for file_path in markdown_files:
@@ -209,7 +265,8 @@ class DocumentIngestion:
                 metadata = {
                     'file_name': os.path.basename(file_path),
                     'directory': directory,
-                    'file_type': 'markdown'
+                    'file_type': 'markdown',
+                    'splitter_used': 'MarkdownTokenTextSplitter'  # Track which splitter was used
                 }
                 
                 doc_id = self.ingest_file(file_path, metadata)
@@ -221,6 +278,45 @@ class DocumentIngestion:
         
         logger.info(f"Successfully ingested {len(doc_ids)} markdown files")
         return doc_ids
+    
+    def get_splitter_usage_stats(self) -> Dict[str, int]:
+        """
+        Get statistics about which splitters were used for ingested documents.
+        
+        Returns:
+            Dict[str, int]: Dictionary with splitter names as keys and usage counts as values
+        """
+        try:
+            import psycopg2
+            conn = psycopg2.connect(
+                host=Config.DB_HOST,
+                port=Config.DB_PORT,
+                database=Config.DB_NAME,
+                user=Config.DB_USER,
+                password=Config.DB_PASSWORD
+            )
+            
+            with conn.cursor() as cursor:
+                cursor.execute(f"""
+                    SELECT 
+                        metadata_->>'splitter_used' as splitter,
+                        COUNT(*) as count
+                    FROM {Config.DOCUMENTS_TABLE}
+                    WHERE metadata_->>'splitter_used' IS NOT NULL
+                    GROUP BY metadata_->>'splitter_used'
+                    ORDER BY count DESC
+                """)
+                results = cursor.fetchall()
+                
+                stats = {row[0]: row[1] for row in results}
+            
+            conn.close()
+            logger.info(f"Splitter usage stats: {stats}")
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error getting splitter usage stats: {e}")
+            return {}
     
     def get_document_count(self) -> int:
         """

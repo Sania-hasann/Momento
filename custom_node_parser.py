@@ -1,13 +1,12 @@
 import re
 from typing import List
-
-import regex as re
 from llama_index.legacy.node_parser.text.token import TokenTextSplitter
 
 
 class UnicodeSafeTokenTextSplitter(TokenTextSplitter):
     def _split(self, text: str, chunk_size: int) -> List[str]:
         """Break text into splits that are smaller than chunk size, preserving surrogate pairs."""
+
         if len(self._tokenizer(text)) <= chunk_size:
             return [text]
 
@@ -59,6 +58,7 @@ class MarkdownTokenTextSplitter(TokenTextSplitter):
 
         def normalize_table_line(line: str) -> str:
             """Normalize table line by removing excessive whitespace while preserving structure."""
+
             if "|" not in line:
                 return line
 
@@ -88,6 +88,7 @@ class MarkdownTokenTextSplitter(TokenTextSplitter):
 
         def process_complete_table():
             """Process a complete table from the buffer - keep tables together as complete units."""
+
             nonlocal current_chunk, current_tokens
             if not table_buffer:
                 return
